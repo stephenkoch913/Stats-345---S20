@@ -1,0 +1,625 @@
+---
+title: "STAT 345 Midterm Project"
+date: "Due April 3"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+font: 12pt
+editor_options:
+  chunk_output_type: inline
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rvest)
+library(ggrepel)
+library(tidytext)
+library(dplyr)
+```
+> "NOBODY KNOWS ANYTHING. Not one person in the entire motion picture field knows for a certainty what’s going to work. Every time out it’s a guess—and, if you’re lucky, an educated one." William Goldman, _Adventures in the Screen Trade_
+
+Your data for the midterm project consists of the 1000 highest rated movies on the Internet Movie Database (IMDB). You can find the first 50 movies [here](https://www.imdb.com/search/title/?groups=top_1000&start=1), with navigational links to the other 950 movies.
+
+Each IMDB page records a large amount of information about each movie. We are interested in the following:
+
+   * The average rating of the movie by IMDB users. 
+   * The number of ratings of the movie. 
+   * The year the movie was released. 
+   * The gross revenue of the movie (US).
+   * The budget for the movie.
+   * The movie's title.
+   * The movie’s genre(s). 
+   * The four top-billed actors.
+   * The text of the 25 "most helpful" reviews, as well as their helpfulness (ratio of helpful votes out of total votes.) 
+    
+Note that the first five (and last) variables are numeric, and the genre, title, and reviews are strings. In some cases, some of these variables may be missing for a particular movie.
+
+In some cases, the business information page lists multiple gross revenues, depending on the country, or gross receipts by different dates. In case of ambiguity, we are interested in gross receipts for the US, and want to use the figure for the latest available date. If no gross revenue figure is available for the US, treat the gross revenue as missing.
+
+**General advice:** Get started on this one early. If you wait to the last minute, it will not go well.
+
+1. (30 pts) Write code to extract the variables described above from all 1000 movies, and store it in a data frame. For full credit, you should write a function which can extract this information from an arbitrary movie code (or url), and then further code which uses that function and applies it to all 1000 movies. For full credit, your code should avoid loops in favor of vectorized operations and apply (and sapply, lapply, etc., as convenient). Your code should handle missing values appropriately, and should not convert categorical variables into numbers, or numbers into strings, etc. 
+
+_Victory conditions:_ You have a data frame with 1000 rows and columns that contain the first six variables, as well as each genre, review, and review helpfulness scores in appropriately formatted columns. Columns have short but clear names. Most rows have no missing values; the few rows where there are missing values have NA in the appropriate places. 
+
+_Mercy condition:_ If you are struggling to get these data in a reasonable form, a compiled, reasonably clean and accurate version for either the URL list or movie data will be added to Canvas called `imdb_urls.csv` and `moviedata.Rdata` respectively.  Use them to answer the following parts, if necessary. Your work in this part, even if not complete, can be scored for partial credit.
+
+```{r}
+#iteration for reading pages, change to 200 when finished
+next_page <- 1:200
+
+#iteration for reading movie specific pages, change to 1000 when finished
+next_movie <- 0:1000
+
+#iteration for reading the top 25 reviews and their helpfulness
+#next_review <- 0:25
+
+#creating vector used to hold links
+url_read <- vector()
+
+#filling vector with links which lead to the general list of top 1000 movies on IMBD
+url_read[next_page] <- str_c("http://www.imdb.com/search/title/?groups=top_1000&start=",(next_page-1)*50+1)
+
+#Function used to read a link and return the read version
+read_sheet <- function(site) {
+  sheet_read <- read_html(site)
+  return(sheet_read)
+}
+
+#performs read_sheet function which collects the text from the url's
+website <- map(.x = url_read[next_page], .f = read_sheet)
+```
+
+
+
+```{r}
+
+#function which removes extra characters
+remove_extra <- function(data){
+ data <- paste(str_extract_all(data, '\\w{3,}')[[1]], collapse=' ')
+return(data)
+}
+
+#collects movie's specific code associated with it's link 
+# ".lister-item-header a"finds the link associated the specific movie
+#gregexpr and regmatches code filter out only the numeric from the link taken
+#map function applies the function find_titles to every iteration in the vector titles
+link_code <- function(data) {
+    find_titles <- function(data){
+      titles <- data %>% html_nodes(".lister-item-header a")
+      titles_num <- gregexpr('[0-9]+',titles)
+      titles <- regmatches(titles,titles_num)
+      titles <- map(.x = titles, .f = remove_extra)
+      return(titles)
+    }
+    titles <- map(.x = data[next_page], .f = find_titles)
+    return(titles)
+}
+
+#first link_codes is a large list of the link codes for specific moives' websites
+#second link_codes unlists the link codes so they can be joined to the url base
+link_codes <- link_code(website[next_page])
+link_codes <- unlist(link_codes[next_page])
+
+#joined url joins the base of the spefici movies' websites,  the link codes, and a backslash
+joined_url <- str_c("http://www.imdb.com/title/tt", link_codes[], "/")
+
+
+#adds review to movie website to direct to the review section
+joined_review_urls <- str_c(joined_url[], "reviews/")
+
+
+#use data review to get reviews for movies
+#data_review <- map(.x = joined_review_urls[next_movie], .f = read_sheet)
+
+
+# use data budget to collect the budget of every movie
+data_budget <- map(.x = joined_url[next_movie], .f = read_sheet)
+
+
+```
+
+
+
+```{r}
+#get reviews function 
+get_reviews <-  function(data){
+
+  find_reviews <- function(data){
+    reviews <- data %>% html_node(".lister-item-content :nth-child(4)")
+    reviews <- html_text(reviews)
+    return(reviews)
+  }
+  
+  reviews <- map(.x = data_review[next_movie], .f = find_reviews)
+  
+ # reviews <- do.call(c, reviews)
+  reviews_df <- as_tibble(data.frame(reviews))
+  colnames(reviews_df) <- ("reviews")
+  return(reviews)
+}
+
+get_reviews(data_review[next_movie])
+
+
+
+#function that gets the average ratings
+#function that gets the average ratings
+helpfulness <-  function(data) {
+  find_helpfulness <- function(data){
+    helpfulness <- data %>% html_nodes(".text-muted")
+    helpfulness <- html_text(helpfulness)
+    return(helpfulness)
+  }
+  helpfulness <- map(.x = data_review[next_movie], .f = find_helpfulness)
+
+  #helpfulness_c <- do.call(c, helpfulness)
+  #helpfulness_df <- as_tibble(data.frame(helpfulness_c))
+  #colnames(helpfulness_df) <- ("helpfulness")
+  return(helpfulness)
+}
+
+
+helpfulness <- get_helpfulness(data_review[next_movie])
+
+```
+
+```{r}
+#test
+
+
+
+
+get_budget <- function(data){
+  get_budget_info <-  function(data) {
+   find_bud <- function(data){
+     bud <- data %>% html_nodes("#titleDetails .txt-block:nth-child(12)")
+      bud <- html_text(bud)
+      return(bud)
+   }
+    bud <- map(.x = data_budget[next_movie], .f = find_bud)
+  
+    if(bud[] == numeric)
+    
+    
+    #bud <- do.call(c, bud)
+
+
+    bud_df <- as_tibble(data.frame(bud))
+    
+    #bud <- map(.x = bud_df, .f = parse_number)
+  
+    colnames(bud_df) <- ("budget") 
+    return(bud_df)
+  }
+
+  bud <- get_budget_info(data_budget[next_movie])
+  return(bud)
+}
+
+bud
+```
+
+
+```{r}
+#function extraction which takes a website and extracts the average movie rating, number of ratings, the year that the movie was released, the gross revenue of the movie, the budget of the movie, the movies' title, the movies' genre, the top four billed actors, and the text of the the 25 "most helpful" reviews and their respective helpfulness
+
+#get_avg_rtg is a model for every other variable that is collected from IMBD
+
+#function that gets the average ratings
+#first applies find_avg with a map statement to every iteration in the vector inputted
+#find_avg finds the node associated with the average rating and applies html_text to use it in r
+#do_call function applies the c function which combines strings to every iteration of the vector avg
+#The next lines create a data frame and name the column
+get_avg_rtg <-  function(data) {
+  find_avg <- function(data){
+    avg_rtg <- data %>% html_nodes(".ratings-imdb-rating strong")
+    avg_rtg <- html_text(avg_rtg)
+    return(avg_rtg)
+  }
+  avg <- map(.x = website[next_page], .f = find_avg)
+  
+  avg_rtg_c <- do.call(c, avg)
+  avg_rtg_df <- as_tibble(data.frame(avg_rtg_c))
+  colnames(avg_rtg_df) <- ("avg_rtg")
+  return(avg_rtg_df)
+}
+
+#function that gets the number of ratings
+get_num_rtgs <-  function(data) {
+  
+  find_nums <- function(data){
+    num_rtgs <- data %>% html_nodes(".sort-num_votes-visible span:nth-child(2)")
+    num_rtgs <- html_text(num_rtgs)
+    return(num_rtgs)
+  }
+  
+  nums <- map(.x = website[next_page], .f = find_nums)
+  
+  num_rtgs_c <- do.call(c, nums)
+  num_rtgs_df <- as_tibble(data.frame(num_rtgs_c))
+  colnames(num_rtgs_df) <- ("num_rtgs")
+  return(num_rtgs_df)
+}
+
+#function that gets years that movies came out
+get_years <-  function(data) {
+  
+  find_years <- function(data){
+    years <- data %>% html_nodes(".text-muted.unbold")
+    years <- html_text(years)
+    return(years)
+  }
+  
+  years <- map(.x = website[next_page], .f = find_years)
+  
+  years_c <- do.call(c, years)
+  years_df <- as_tibble(data.frame(years_c))
+  colnames(years_df) <- ("year")
+  return(years_df)
+}
+
+#function that gets the gross revenue if applicable
+#different than previous functions due to missing data
+#also collects text "Votes:" and uses this text as a place holder for movies with gross revenue listed
+#votes is eliminated using the str_split function
+#addition a data is input in the data frame so the wanted data is indexed
+#rows that do not have a value are changed to NA
+get_gross_rev <- function(data) {
+  find_gross_rev <-function(data) {
+    gross_rev <- data %>% html_nodes(".text-muted:nth-child(1) , .ghost~ .text-muted+ span")
+    gross_rev <- html_text(gross_rev)
+    return(gross_rev)
+  }
+  
+  gross_rev <- map(.x = website[next_page], .f = find_gross_rev)
+  
+  gross_rev_c <- do.call(c, gross_rev)
+  
+  gross_rev_c <- paste(gross_rev_c, collapse = '')
+  gross_rev_split <-  str_split(gross_rev_c, "Votes:")
+  gross_rev_df <- as_tibble(data.frame(gross_rev_split))
+  gross_rev_df <- gross_rev_df[-1,]
+  gross_rev_df[gross_rev_df==''] <- NA
+  colnames(gross_rev_df) <- ("gross_rev")
+  return(gross_rev_df)
+}
+
+#function that gets the title of movies
+get_title <-  function(data) {
+  
+  find_title <- function(data){
+    title <- data %>% html_nodes(".lister-item-header a")
+    title <- html_text(title)
+    return(title)
+  }
+  
+  title <- map(.x = website[next_page], .f = find_title)
+  
+  title_c <- do.call(c, title)
+  title_df <- as_tibble(data.frame(title_c))
+   colnames(title_df)<-("title")
+  return(title_df)
+}
+
+#function that gets the genres of the movies
+#different than previous functions since the each movie has a unspecified amount of genres
+#text "Rate this" is also collected and used as a place holder
+#str_split is used to eliminate the text "Rate this"
+
+get_genre <-  function(data) {
+  
+  find_genre <- function(data){
+    genre <- data %>% html_nodes(".rate, .genre")
+    genre <- html_text(genre)
+    return(genre)
+  }
+  
+  genre <- map(.x = website[next_page], .f = find_genre)
+  
+  genre_c <- do.call(c, genre)
+  genre_c <- paste(genre_c, collapse = '')
+  genre_split <-  str_split(genre_c, "Rate this\n")
+  genre_df <- as_tibble(data.frame(genre_split))
+  colnames(genre_df) <- ("genre")
+  return(genre_df)
+}
+
+#function getting top four paid actors
+#different than previous functions since the each movie has four actors
+#text "Rate this" is also collected and used as a place holder
+#str_split is used to eliminate the text "Rate this"
+#unecessary data is eliminated by indexing the wanted data in the dataframe
+
+get_actors <-  function(data) {
+  
+  find_actors <- function(data){
+    actors <- data %>% html_nodes(".rate, .lister-item-content .ghost~ a")
+    actors <- html_text(actors)
+    return(actors)
+  }
+  
+  actors <- map(.x = website[next_page], .f = find_actors)
+  
+  actors_c <- do.call(c, actors)
+  actors_c <- paste(actors_c, collapse = ' ')
+  
+  actors_split <-  str_split(actors_c, "Rate this")
+  actors_df <- as_tibble(data.frame(actors_split))
+  actors_df <- actors_df[-1,]
+  colnames(actors_df) <- ("actors")
+  return(actors_df)
+}
+  
+#uses separate links to go to movies specific website and returns budget of movie
+#Working on this currently
+get_budget <- function(data){
+  get_budget_info <-  function(data) {
+   find_bud <- function(data){
+     bud <- data %>% html_nodes("#home_img_holder, #titleDetails .txt-block:nth-child(12)")
+      bud <- html_text(bud)
+      return(bud)
+    }
+    bud <- map(.x = data_budget[next_movie], .f = find_bud)
+  
+    bud <- do.call(c, bud)
+
+
+    bud_df <- as_tibble(data.frame(bud))
+    
+    bud <- map(.x = bud_df, .f = parse_number)
+  
+    colnames(bud_df) <- ("budget") 
+    return(bud)
+  }
+  bud <- get_budget_info(data_budget[next_movie])
+  return(bud)
+}
+
+```
+
+
+```{r}
+#data extraction function refreneces functions to gather wanted data and returns the data frame
+data_extraction <- function(website) {
+
+   avg_rtg <- get_avg_rtg(website[next_page])
+
+   num_rtgs <- get_num_rtgs(website[next_page])
+
+   year <- get_years(website[next_page])
+
+   gross_rev <- get_gross_rev(website[next_page])
+
+   budget <- get_budget(data_budget)
+
+   title <- get_title(website[next_page])
+
+   genre <- get_genre(website[next_page])
+
+   actors <- get_actors(website[next_page])
+
+   #reviews <- h %>% html_nodes(".lister-item-header a")
+   #reviews <- html_text(reviews)
+
+
+   movie_data <- data.frame(avg_rtg, num_rtgs, year, gross_rev, budget, title, genre, actors)
+   return(movie_data)
+ }
+
+#references function data_extraction and stes it to "full_movie_data"
+full_movie_data <- data_extraction(website[next_page])
+
+
+full_movie_data
+```
+
+
+```{r}
+#read given data
+movies <- read.csv("moviedata (1).csv")
+```
+
+
+2. (30 pts) Write code to plot the distributions of the first five variables listed above. Make sure missing values, if any, are handled gracefully. Your plots should be appropriately labeled, titled, colored, etc. Comment on the features each plot presents -- what information is gained by seeing these graphics?
+
+
+
+```{r}
+#graph of rating
+#geom_bar is used to display data
+#colour outlines each bar with black
+#fill colors the bars the wanted color
+#lab labels the plot's title, x-axis, and y-axis
+#sets theme to black and white
+#geom_vline adds a dashed line at the mean
+
+ggplot(movies, aes(rating)) + geom_bar(colour = "black", fill = "orange", na.rm = TRUE) +labs(title = "Rating of Movies", x = "Rating", y = "Number of Movies") + theme_bw() + geom_vline(aes(xintercept=mean(rating)), color="orange",
+             linetype="dashed")
+
+
+```
+Commentary:
+This display reveals that most movies on the list of top 1000 movies rated on IMBD are ranked between 7.6 and 8.2, the mean is at 7.9, and there is a skew to the right.
+
+
+
+```{r}
+#graph of number of ratings
+#geom_histogram is used to display data
+#colour outlines each bar with black
+#fill colors the bars the wanted color
+#lab labels the plot's title, x-axis, and y-axis
+#sets theme to black and white
+#geom_vline adds a dashed line at the mean
+
+ggplot(movies, aes(num_ratings)) + geom_histogram(colour = "black",fill = "blue", na.rm = TRUE) + labs(title = "Number of Ratings", x = "Number of Ratings", y = "Number of Movies") + theme_bw() + geom_vline(aes(xintercept=mean(num_ratings)), color="blue",
+             linetype="dashed") 
+
+```
+Commentary:
+The number of ratings is mainly grouped around 100000 but the number of ratings are skewed right which is shown by the mean around 300000.
+
+```{r}
+#graph of year that the movies were released
+#geom_bar is used to display data
+#colour outlines each bar with black
+#fill colors the bars the wanted color
+#sets theme to black and white
+#scale_x_continuous sets the name of the x-axis to year and changes the amount of breaks to 10
+#scale_y_continuous sets the name of the y-axis to the number of movies and the number of breaks to 4
+#ggtitle adds a title to the plot
+#geom_vline adds a dashed line at the mean
+
+ggplot(movies, aes(x=year)) + geom_bar(colour = "black", fill="lightgreen", na.rm = TRUE ) + theme_bw() + scale_x_continuous(name = "Year", breaks = scales::pretty_breaks(n=10)) + scale_y_continuous(name = "Number of Movies", breaks = scales::pretty_breaks(n=4)) + ggtitle("Year Movies were Released") + geom_vline(aes(xintercept=mean(year)), color="darkgreen",
+             linetype="dashed")
+
+```
+Commentary:
+This displays shows that the majority of movies on the list were released since 1990, the mean year is around 1992 and the data is skewed to the left.
+
+
+```{r}
+#graph of budgets
+
+#geom_historgram is used to display data
+#colour outlines each bar with black
+#fill colors the bars the wanted color
+#sets theme to black and white
+#scale_x_continuous sets the name of the x-axis to budget
+#scale_y_continuous sets the name of the y-axis to the number of movies and the number of breaks to 4
+#ggtitle adds a title to the plot
+#geom_vline adds a dashed line at the mean
+
+ggplot(movies, aes(x=budget)) + geom_histogram(colour = "black", fill="violet", na.rm = TRUE ) + theme_bw() + scale_x_continuous(name = "Budget", labels = scales::comma) + scale_y_continuous(name = "Number of Movies", breaks = scales::pretty_breaks(n=4)) + ggtitle("Budget of Movies") + geom_vline(aes(xintercept=mean(num_ratings)),
+             linetype="dashed")
+
+
+#geom_historgram is used to display data
+#colour outlines each bar with black
+#fill colors the bars the wanted color
+#sets theme to black and white
+#scale_x_continuous sets the name of the x-axis to budget and changes y-axis label to a logrithmic scale
+#scale_y_continuous sets the name of the y-axis to the number of movies and the number of breaks to 4
+#ggtitle adds a title to the plot
+#geom_vline adds a dashed line at the mean
+
+ggplot(movies, aes(x=budget)) + geom_histogram(colour = "black", fill="violet", na.rm = TRUE ) + theme_bw() + scale_x_log10(name = "Budget", labels = scales::comma) + scale_y_continuous(name = "Number of Movies", breaks = scales::pretty_breaks(n=4)) + ggtitle("Budget of Titles") + geom_vline(aes(xintercept=mean(num_ratings)),
+             linetype="dashed")
+```
+Commentary:
+The first plot displays the budgets on a regular increasing scale.  This plot shows that most of the movies have a budget of practically 0 when  compared to the movies with the highest budgets.  The second plot uses a logarithmic scale which allows us to better see patterns in the budgets for movies.  The logarithmic scale shows us the budgets of this list of movies has a mean of about 800000 and has a very wide range.
+
+```{r}
+#graph of gross revenue from movies
+#geom_historgram is used to display data
+#colour outlines each bar with black
+#fill colors the bars the wanted color
+#sets theme to black and white
+#scale_x_continuous sets the name of the x-axis to the gross revenue
+#scale_y_continuous sets the name of the y-axis to the number of movies and the number of breaks to 4
+#ggtitle adds a title to the plot
+#geom_vline adds a dashed line at the mean
+
+ggplot(movies, aes(x=gross)) + geom_histogram(colour = "black", fill="lightblue", bins = 25, na.rm = TRUE ) + theme_bw() + scale_x_continuous(name = "Gross Revinue", labels = scales::comma) + scale_y_continuous(name = "Number of Movies", breaks = scales::pretty_breaks(n=4)) + ggtitle("Gross Revinue of Movies") + geom_vline(aes(xintercept=mean(num_ratings)), color="darkblue",
+             linetype="dashed") 
+```
+Commentary:
+The plot shows us the majority of gross revenue is only a few thousand but the range reaches to almost 1000000000. This also shows a large skew in the gross budget.
+
+3. (20 pts) Complete a sentiment analyses on the 25 most helpful reviews for each movie. The choice of lexicon is up to you, but explain your reasons why your choice is the most reasonable/appropriate option. Add a summary of this information to your original data frame.
+
+```{r}
+#creating data set with the needed data
+
+#rev is a data set which includes a new column for every review and lists the helpfulness of every review in it's own column
+rev <- pivot_longer(movies, cols = Review_1:Review_25, names_to = "rev_num", values_to = "rev_values")
+
+#rev2 is a data set which includes a new column for every review and listsevery review in it's own column
+rev2 <- pivot_longer(movies, cols = HelpProp_1:HelpProp_25, names_to = "help_num", values_to = "help_values")
+
+#all_data is a data set which includes the review and it's helpfulness and the title of what movie it was from
+all_data <- data.frame(rev, rev2) %>% dplyr::select(title, rev_values, help_values)
+```
+
+
+
+```{r}
+#loads bing sentiment
+bing <- get_sentiments("bing")
+```
+
+```{r}
+#tibble of the review and the title of the movie which the review is from
+data_tibble <- tibble(line = 1:length(rev$rev_values), Review = rev$rev_values, title = rev$title)
+
+#tibble which seperates each word in the review into a separate column
+data_tibble2 <- data_tibble %>% unnest_tokens(word, Review)
+```
+
+
+
+```{r}
+#counting the sentiment analysis score of each word and adding it to data_tibble2
+data_count <- left_join(data_tibble2, bing, by = "word")
+
+#counting the total sentiment analysis score of the row and replacing data_count with the new total sentiment analysis score
+data_count <- data_count %>% group_by(line) %>% count(by = sentiment)
+
+#adding the sentiment analysis score to the tibble with each review and it's respective movie 
+rev_data <- left_join(data_count, data_tibble, by = "line")
+
+#replacing rev_data by selecting the title and sentiment analysis score
+rev_data <- rev_data %>%  dplyr::select(line, title, by, n)
+
+#making a new data frame by using a pivot wider to replace text with more efficient options
+data_sent <- rev_data %>% pivot_wider(names_from = by, values_from = n)
+
+#grouping data_sent by the title and adding the score of positive and negative words
+data_sent <- data_sent %>% group_by(title) %>%
+  summarise(sum(positive, na.rm = TRUE), sum(negative, na.rm = TRUE))
+
+#changing the names of new columns to positive and negative
+names(data_sent)[2] <- "positive"
+names(data_sent)[3] <- "negative"
+
+```
+
+```{r}
+#creating a new data set with the sentiment analysis score of positive and negative comments to the data set movies
+movies_sent <- left_join(movies, data_sent, by = "title")
+movies_sent
+```
+Reasoning for "Bing":
+I used bing since it would return a value positive or negative for specific word,  I realized I could use this list of positive and negative to create a numeric value which then could be counted.  Other sentiment analysis seemed more complicated and returned more information that I knew how I would be able to handle.
+
+Summary:
+This sentiment analysis allows us to grade the movies based on how the reviews describe the movies are which can give a second source to someone who is choosing if they should or should not watch a movie.
+
+4. (20 pts) Variable Relationships. Create one plot that displays the relationship (or lack thereof) between any of the movie variables. Your plot should be appropriately labeled, titled, colored, etc. Your plot should display at minimum 3 variables. A plot with more variables included will be scored more favorably (as long as the plot is reasonable and legible). Reviews and helpfulness/sentiment scores are considered aggregate variables (e.g., 25 helpfulness scores will be considered a single variable). Some questions that you might consider when creating your plot are below, though you are not limited to these questions. 
+   - Is there any evidence of a relationship between review helpfulness and review sentiment? 
+   - Do the review scores (from the most helpful reviews) generally agree with the overall IMDB average rating?
+   - Is there evidence of a relationship between average IMDB rating and a movie's gross? Does release year seem to have an effect on this relationship?
+   - Is there evidence of a relationship between a movie's budget and a movie's gross? Does release year seem to have an effect on this relationship? 
+   - Do any actors have an effect (positive or negative) on the relationship between budget, gross, or average IMDB rating? Is this pattern common across any genres?
+```{r}
+#creating ggplot of the sentiment analysis score of positive and negative comments and the ratings
+#facet_wrap divides the points into six different plots by a range of years
+movie_plot <-  ggplot(data = movies_sent, aes(positive, negative)) + facet_wrap(~ cut_number(year, 6))
+
+#creating the plot
+#geom_point adds a point for every reviews positive and negative sentiment analysis score
+#geom_abline adds a line of best fit to the plot based on the sentiment analysis score
+#theme  is sets to black and white
+
+movie_plot + geom_point() + geom_abline(colour = "red") +theme_bw() + scale_x_continuous(name = "Positive Sentiment Analysis Score",  breaks = scales::pretty_breaks(n=4)) + scale_y_continuous(name = "Negative Sentiment Analysis Score", breaks = scales::pretty_breaks(n=4))
+```
+One relationship that this plot shows is as year increases, there are more agreed upon opinions of how the movies from a specific time period are based upon the sentiment analysis.  This is seen through the grouping of the points made by the sentiment analysis.  In the first plot with a range of years between 1920 and 1964, the points are scattered in a circle and there is a lot of variability in the sentiment analysis. Throughout the next four plots  of ranges of years a trend can be seen where the reviews draw closer to the line of best fit in red. In the last plot the reviews are very similar to the line of best fit in red.  The grouping of the points shows each movies and variability of positive and negative sentiment analysis score and variability of scores.  Points closer to the line of best fit have an equal amount of positive and negative sentiment analysis scores. However, this relationship is very weak and if statistical tests were performed would likely fail.
+  
+  
+  
+  
+  
+
+
